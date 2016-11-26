@@ -20,14 +20,18 @@ void process_usb();
 void process_command();
 void readTemp();
 
-char online = FALSE;
+uint8_t online = FALSE;
+uint8_t usbPtr = 0;
 char usbInBuf[32];
-unsigned char usbPtr = 0;
-//unsigned char readTempFlag = 0;
+
+uint16_t inputs = 0;
+uint16_t outputs = 0;
+uint16_t debounceinputs = 0;
+uint8_t  debounce[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 int main()
 {
-	CLKPR = B(CLKPCE); CLKPR = B(CLKPS2);  // set for 16/16=1 MHz clock
+	CLKPR = B(CLKPCE); CLKPR = B(CLKPS2);  // set for 16/16=1 MHz clock  (NOTE: 1-Wire bus timing only worked when at 4Mhz, regardless of F_CPU macro setting)
 	set_sleep_mode(SLEEP_MODE_IDLE);  // just idle for sleep mode so we can receive USB messages
 	ACSR |= B(ACD); // disable Analog comparator
 	WDTCSR = 0; // Watchdog off
@@ -55,9 +59,8 @@ int main()
 	usb_init();
 	sei();
 	while (!usb_configured());
-	_delay_ms(100);
 	ioexpander_init();
-	//ds1820_search_bus();
+	_delay_ms(100);
 	
 	while (1) 
 	{
@@ -107,16 +110,16 @@ ISR(TIMER1_COMPA_vect)
 
 void send_inputs()
 {
-	uint8_t porta, portb;
-	ioexpander_read_inputs(&porta, &portb);
-	usb_printf_P(PSTR("I=%X,%X\r\n"), porta, portb);
+	uint16_t pins;
+	ioexpander_read_inputs(&pins);
+	usb_printf_P(PSTR("I=%X\r\n"), pins);
 }
 
 void send_outputs()
 {
-	uint8_t porta, portb;
-	ioexpander_read_outputs(&porta, &portb);
-	usb_printf_P(PSTR("O=%X,%X\r\n"), porta, portb);
+	uint16_t pins;
+	ioexpander_read_outputs(&pins);
+	usb_printf_P(PSTR("O=%X\r\n"), pins);
 }
 
 void process_usb()
@@ -163,7 +166,8 @@ void process_usb()
 
 void process_command()
 {
-	uint8_t a, b;
+	uint16_t bitmask;
+	uint8_t port, val;
 
 	if (usbPtr < 1)
 	{
@@ -174,32 +178,22 @@ void process_command()
 	usbInBuf[usbPtr] = 0;
 	switch (usbInBuf[0])
 	{
-		/*
-		case 'T':
-			ds1820_start_temps();
-			tempTimer();
-			break;
-		case 'S':
-			ds1820_search_bus();
-			break;
-		*/
-		case 'X':
-			ioexpander_debug_inputs();
-			break;
-		case 'Y':
-			ioexpander_debug_outputs();
-			break;
 		case 'I': 
 			send_inputs();
 			break;
 		case 'O':
-			if (usbPtr < 6)
+			if (usbPtr < 5)
 			{
 				usb_printf_P(PSTR("Error in Output\r\n"));
 				break;
 			}
-			sscanf_P(usbInBuf, PSTR("O=%hhX,%hhX"), &a, &b);
-			ioexpander_set_outputs(a, b);
+			sscanf_P(usbInBuf, PSTR("O%hhu=%hhu"), &port, &val);
+			bitmask = 1 << port;
+			if (val)
+				outputs |= bitmask;
+			else
+				outputs &= ~bitmask;
+			ioexpander_set_outputs(outputs);
 			send_outputs();
 			break;
 	}

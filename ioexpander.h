@@ -12,6 +12,6 @@ void ioexpander_set_outputs(uint16_t pins);
 void ioexpander_debug_inputs();
 void ioexpander_debug_outputs();
 
-extern uint8_t inputFlag;
+extern uint8_t ioexpander_inputFlag;
 
 #endif // __IOEXPANDER_H__

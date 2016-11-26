@@ -110,9 +110,9 @@ void ioexpander_debug_outputs()
 
 
 /* Input expander */
-unsigned char inputFlag = 0;
+unsigned char ioexpander_inputFlag = 0;
 ISR(VEC_INPUT_EXPANDER)
 {
-	inputFlag = 1;
+	ioexpander_inputFlag = 1;
 }
 

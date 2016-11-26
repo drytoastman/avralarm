@@ -14,20 +14,23 @@
 #include "usbserial.h"
 #include "ioexpander.h"
 
-void send_inputs();
-void send_outputs();
+void filtered_read();
+void sample_inputs();
 void process_usb();
 void process_command();
 void readTemp();
+
+#define DEBOUNCE_ARRAY_LENGTH 10
 
 uint8_t online = FALSE;
 uint8_t usbPtr = 0;
 char usbInBuf[32];
 
-uint16_t inputs = 0;
 uint16_t outputs = 0;
-uint16_t debounceinputs = 0;
-uint8_t  debounce[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+uint8_t  sampleFlag = FALSE; 
+uint8_t  debounceidx = 0;
+uint16_t debounceSamples[DEBOUNCE_ARRAY_LENGTH];
+uint16_t SAMPLE_TIMER = 2000; // defaults to about 2ms between reads (2000 ticks @ 1Mhz)
 
 int main()
 {
@@ -35,7 +38,7 @@ int main()
 	set_sleep_mode(SLEEP_MODE_IDLE);  // just idle for sleep mode so we can receive USB messages
 	ACSR |= B(ACD); // disable Analog comparator
 	WDTCSR = 0; // Watchdog off
-	PRR0 = B(PRTWI)  | B(PRTIM2) | B(PRTIM1) | B(PRTIM0) | B(PRADC); // disable timers[0,1,2], twi and ADC
+	PRR0 = B(PRTWI)  | B(PRTIM2) | B(PRTIM0) | B(PRADC); // disable timers[0,2], twi and ADC
 	PRR1 = B(PRTIM3) | B(PRUSART1); // disable timer3 and usart
 
 	/* Set MOSI, SCK, SS output, all others input */
@@ -70,56 +73,64 @@ int main()
 			process_usb();
 		}
 
-		if (inputFlag)
+		if (ioexpander_inputFlag)
 		{
-			inputFlag = 0;
-			send_inputs();
+			ioexpander_inputFlag = FALSE;
+			filtered_read();
 		}
-
-		/*
-		if (readTempFlag)
+		
+		if (sampleFlag)
 		{
-			readTempFlag = 0;
-			ds1820_read_temps();
+			sample_inputs();
 		}
-		*/
 
 		sleep_mode(); // until next interrupt
 	}
 }
 
-/*  Not using the one-wire temps anymore, just keeping for reference
-void tempTimer()
+
+// Start our timer to interrupt at about 1KHz, add variation to our samples to make sure we sample a full range
+void filtered_read()
 {
-	// 4Mhz/1024prescale = 3906Hz
-	// This causes COMPA about 1 second after we start the timer, only need 750ms
 	TCNT1H = 0;
 	TCNT1L = 0;
-	OCR1A = 3900;
+	OCR1A  = SAMPLE_TIMER;  // interrupt at set timer rate
 	TIMSK1 = B(OCIE1A);
 	TCCR1A = 0;
-	TCCR1B = B(CS12) | B(CS10);	
+	TCCR1B = B(WGM12) | B(CS10); // count to OCR1A and reset, clk=cpu
+	
+	debounceidx = 0;
+	for (uint8_t ii = 0; ii < DEBOUNCE_ARRAY_LENGTH; ii++) { debounceSamples[ii] = 1 << ii; }
+	sampleFlag = TRUE;  // start one now
 }
 
+// When the counter goes off, start another input sample
 ISR(TIMER1_COMPA_vect)
 {
-	readTempFlag = 1; // let main know to call readTemp
-	TCCR1B = 0; // stop the timer
-}
-*/
-
-void send_inputs()
-{
-	uint16_t pins;
-	ioexpander_read_inputs(&pins);
-	usb_printf_P(PSTR("I=%X\r\n"), pins);
+	sampleFlag = TRUE;
 }
 
-void send_outputs()
-{
-	uint16_t pins;
-	ioexpander_read_outputs(&pins);
-	usb_printf_P(PSTR("O=%X\r\n"), pins);
+// Sample all the inputs and wait until everything settles
+void sample_inputs()
+{	
+	ioexpander_read_inputs(&(debounceSamples[debounceidx]));
+	debounceidx = (debounceidx + 1) % DEBOUNCE_ARRAY_LENGTH;
+
+	uint16_t ands = 0xFFFF;
+	uint16_t ors  = 0;
+	for (uint8_t ii = 0; ii < DEBOUNCE_ARRAY_LENGTH; ii++)
+	{
+		ands &= debounceSamples[ii];
+		ors  |= debounceSamples[ii];
+	}
+		
+	if (ands == ors)
+	{
+		TCCR1B = 0; // stop the timer and further sampling
+		usb_printf_P(PSTR("I=%hX\r\n"), ands);
+	}
+	
+	sampleFlag = FALSE;
 }
 
 void process_usb()
@@ -166,7 +177,7 @@ void process_usb()
 
 void process_command()
 {
-	uint16_t bitmask;
+	uint16_t bitmask, timertemp;
 	uint8_t port, val;
 
 	if (usbPtr < 1)
@@ -178,23 +189,35 @@ void process_command()
 	usbInBuf[usbPtr] = 0;
 	switch (usbInBuf[0])
 	{
-		case 'I': 
-			send_inputs();
-			break;
-		case 'O':
-			if (usbPtr < 5)
+		case 'S':
+			if (usbPtr >= 6) 
 			{
-				usb_printf_P(PSTR("Error in Output\r\n"));
-				break;
+				sscanf_P(usbInBuf, PSTR("S=%hX"), &timertemp);
+				if (timertemp > 100)  // minor validation
+					SAMPLE_TIMER = timertemp;
 			}
-			sscanf_P(usbInBuf, PSTR("O%hhu=%hhu"), &port, &val);
-			bitmask = 1 << port;
-			if (val)
-				outputs |= bitmask;
-			else
-				outputs &= ~bitmask;
-			ioexpander_set_outputs(outputs);
-			send_outputs();
+			usb_printf_P(PSTR("S=%hX\r\n"), SAMPLE_TIMER);
+			break;
+			
+		case 'I': 
+			filtered_read();
+			break;
+			
+		case 'O':
+			if (usbPtr >= 5)  // if we have actual data to set, parse it and set it now
+			{
+				sscanf_P(usbInBuf, PSTR("O%hhX=%hhX"), &port, &val);
+				bitmask = 1 << port;
+				if (val)
+					outputs |= bitmask;
+				else
+					outputs &= ~bitmask;
+				ioexpander_set_outputs(outputs);
+			}
+			
+			// reread our outputs so everyone is in sync
+			ioexpander_read_outputs(&outputs);
+			usb_printf_P(PSTR("O=%hX\r\n"), outputs);
 			break;
 	}
 

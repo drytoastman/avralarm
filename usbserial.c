@@ -461,10 +461,12 @@ void usb_flush_output(void)
 // at full USB speed), but they are set by the host so we can
 // set them properly if we're converting the USB to a real serial
 // communication
+/* remove strict-aliasing warning by just removing function as its uncalled anyhow
 uint32_t usb_get_baud(void)
 {
 	return *(uint32_t *)cdc_line_coding;
 }
+*/
 uint8_t usb_get_stopbits(void)
 {
 	return cdc_line_coding[4];

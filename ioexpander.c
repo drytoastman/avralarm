@@ -80,19 +80,22 @@ void ioexpander_init()
 	_ioexpander_write_initbuf(CSOUTPUT, output_config, sizeof(output_config));
 }
 
-void ioexpander_read_inputs(uint8_t *porta, uint8_t *portb)
+void ioexpander_read_inputs(uint16_t *pins)
 {
-	_ioexpander_read_ports(CSINPUT, porta, portb);
+	uint8_t *ports = (uint8_t*)pins;
+	_ioexpander_read_ports(CSINPUT, &ports[0], &ports[1]);
 }
 
-void ioexpander_read_outputs(uint8_t *porta, uint8_t *portb)
+void ioexpander_read_outputs(uint16_t *pins)
 {
-	_ioexpander_read_ports(CSOUTPUT, porta, portb);
+	uint8_t *ports = (uint8_t*)pins;
+	_ioexpander_read_ports(CSOUTPUT, &ports[0], &ports[1]);
 }
 
-void ioexpander_set_outputs(uint8_t porta, uint8_t portb)
+void ioexpander_set_outputs(uint16_t pins)
 {
-	_ioexpander_set_ports(CSOUTPUT, porta, portb);
+	uint8_t *ports = (uint8_t*)&pins;
+	_ioexpander_set_ports(CSOUTPUT, ports[0], ports[1]);
 }
 
 void ioexpander_debug_inputs()

@@ -72,7 +72,7 @@ char _ds1820_search_busi(unsigned char bus)
 }
 
 
-void ds_1820_search_bus()
+void ds1820_search_bus()
 {
 	//usb_printf_P(PSTR("Reset and Search Bus\r\n"));
 	memset(devices, sizeof(devices), 0);
@@ -99,7 +99,7 @@ char _ds1820_start_temp(char bus)
 }
 
 
-char ds_1820_start_temps()
+char ds1820_start_temps()
 {
 	_ds1820_start_temp(B(OWBUS1));
 	_ds1820_start_temp(B(OWBUS2));
@@ -108,7 +108,7 @@ char ds_1820_start_temps()
 }
 
 
-char ds_1820_read_temps()
+char ds1820_read_temps()
 {
 	for (int ii = 0; ii < numDevices; ii++)
 	{

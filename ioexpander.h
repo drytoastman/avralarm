@@ -6,9 +6,9 @@
 #define __IOEXPANDER_H__
 
 void ioexpander_init();
-void ioexpander_read_inputs(uint8_t *porta, uint8_t *portb);
-void ioexpander_read_outputs(uint8_t *porta, uint8_t *portb);
-void ioexpander_set_outputs(uint8_t porta, uint8_t portb);
+void ioexpander_read_inputs(uint16_t *pins);
+void ioexpander_read_outputs(uint16_t *pins);
+void ioexpander_set_outputs(uint16_t pins);
 void ioexpander_debug_inputs();
 void ioexpander_debug_outputs();
 
